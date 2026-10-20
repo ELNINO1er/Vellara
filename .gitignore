@@ -1,0 +1,18 @@
+# Dépendances et builds
+node_modules
+dist
+*.tsbuildinfo
+
+# Secrets et configuration locale (accès administrateur, clés…)
+.env
+.env.*
+!.env.example
+*.local
+
+# Éditeurs / système
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.log
