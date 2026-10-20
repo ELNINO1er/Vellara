@@ -1,13 +1,13 @@
 # Vellara Pharma — Plateforme catalogue (prototype)
 
 Plateforme de présentation et de gestion de médicaments pour les professionnels de santé.
-**Prototype de démonstration** : produits fictifs, connexion vérifiée côté navigateur, données stockées dans le navigateur.
+**Prototype de démonstration** : produits fictifs, connexion vérifiée côté serveur, données du catalogue stockées dans le navigateur.
 
 ## Démarrer
 
 ```bash
 npm install
-cp .env.example .env.local   # puis renseigner l'e-mail et l'empreinte du mot de passe admin
+cp .env.example .env.local   # puis renseigner ADMIN_EMAIL, ADMIN_PASSWORD_SHA256, SESSION_SECRET
 npm run dev        # http://localhost:5180
 npm test           # tests unitaires (Vitest)
 npm run build      # vérification TypeScript + build de production dans dist/
@@ -20,6 +20,7 @@ React 19 · TypeScript (strict) · Tailwind CSS 4 · React Router 8 · Vite 8 ·
 ## Architecture
 
 ```
+api/                         Fonctions serveur Vercel (connexion, session, déconnexion)
 src/
 ├── config/brand.ts          Nom provisoire, coordonnées par défaut, listes (formes, professions), limites d'import
 ├── types/catalog.ts         Modèle de données (Medicine, Category, Laboratory, DocumentSource…)
@@ -34,7 +35,7 @@ src/
 ├── services/repository.ts   Accès aux données (interface CatalogRepository + implémentation localStorage)
 ├── store/                   État applicatif (React Context)
 │   ├── CatalogContext.tsx   Actions métier : créer, publier, supprimer, référentiels, paramètres…
-│   ├── AuthContext.tsx      ⚠️ Connexion de démonstration (vérifiée côté navigateur)
+│   ├── AuthContext.tsx      Session admin (vérifiée par l'API serveur)
 │   └── ToastContext.tsx     Notifications (aria-live)
 ├── components/
 │   ├── ui/                  Design system : Button, Field, Select (liste déroulante accessible), Segmented, Feedback, Icon
@@ -59,11 +60,23 @@ src/
 
 Les filtres du catalogue vivent dans l'URL : une recherche filtrée peut être partagée.
 
-## Accès administrateur
+## Accès administrateur (vérifié côté serveur)
 
-Les accès sont définis dans `.env.local` (ignoré par git) : `VITE_ADMIN_EMAIL` et `VITE_ADMIN_PASSWORD_SHA256`
-(empreinte SHA-256 du mot de passe, jamais le mot de passe en clair). Session fermée à la fermeture de l'onglet,
-blocage de 30 s après 5 échecs. Relancer `npm run dev` après modification du fichier.
+La connexion passe par des fonctions serveur Vercel (`api/login`, `api/session`, `api/logout`) :
+les accès ne sont **jamais** envoyés au navigateur ni inclus dans le JavaScript publié.
+Session : cookie `httpOnly`, `Secure`, `SameSite=Strict`, signé (HMAC-SHA256), valable 8 h.
+Blocage d'une minute après 5 échecs.
+
+Variables d'environnement **serveur** (sans préfixe `VITE_`) :
+
+| Variable | Contenu |
+|---|---|
+| `ADMIN_EMAIL` | e-mail de l'administrateur |
+| `ADMIN_PASSWORD_SHA256` | empreinte SHA-256 du mot de passe (commande dans `.env.example`) |
+| `SESSION_SECRET` | clé aléatoire ≥ 32 caractères (la changer déconnecte toutes les sessions) |
+
+- **Local** : `.env.local` (ignoré par git), puis `npm run dev` — les fonctions `/api` sont servies par Vite.
+- **Vercel** : Settings › Environment Variables (Production), puis redéployer.
 
 ## Partage à un médecin
 

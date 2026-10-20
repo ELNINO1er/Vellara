@@ -9,8 +9,17 @@ import { DemoStrip } from './PublicLayout';
 
 /** Redirige vers l'écran de connexion (simulée) si aucune session n'est ouverte. */
 export function RequireAdmin() {
-  const { session } = useAuth();
+  const { session, loading } = useAuth();
   const location = useLocation();
+  if (loading)
+    return (
+      <div role="status" className="grid min-h-screen place-items-center bg-parchment text-muted">
+        <span className="flex items-center gap-3">
+          <span className="size-5 animate-spin rounded-full border-2 border-sand-300 border-t-bordeaux" aria-hidden="true" />
+          Vérification de la session…
+        </span>
+      </div>
+    );
   if (!session) return <Navigate to="/admin/connexion" replace state={{ from: location.pathname }} />;
   return <AdminLayout />;
 }
@@ -81,7 +90,7 @@ function AdminLayout() {
                 Connecté
               </strong>
               <span className="block truncate">{session?.email}</span>
-              <span className="text-[#9CC2DA]">Prototype : vérification côté navigateur.</span>
+              <span className="text-[#9CC2DA]">Session sécurisée côté serveur.</span>
             </div>
             <NavLink to="/" className={itemClass({ isActive: false })}>
               <Icon name="external" size={19} />
@@ -90,8 +99,8 @@ function AdminLayout() {
             <button
               type="button"
               className={itemClass({ isActive: false })}
-              onClick={() => {
-                signOut();
+              onClick={async () => {
+                await signOut();
                 notify('Vous êtes déconnecté.');
                 navigate('/');
               }}

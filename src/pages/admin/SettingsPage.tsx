@@ -89,7 +89,7 @@ export function SettingsPage() {
             </Button>
           </div>
           <Notice icon="lock" tone="cream">
-            <strong>Sécurité (prototype).</strong> La connexion est vérifiée dans le navigateur, ce qui reste contournable. La production nécessitera une authentification
+            <strong>Sécurité (prototype).</strong> La connexion est vérifiée par le serveur (cookie de session sécurisé). Les données du catalogue restent stockées dans le navigateur : la production nécessitera une base de données, une authentification
             serveur, des rôles (éditeur, validateur, administrateur) et un historique des modifications.
           </Notice>
           <div className="surface p-[22px]">

@@ -1,11 +1,9 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 /**
- * ⚠️ AUTHENTIFICATION DE DÉMONSTRATION — vérifiée dans le navigateur.
- * Les accès sont lus dans `.env.local` (VITE_ADMIN_EMAIL, VITE_ADMIN_PASSWORD_SHA256) ;
- * seule l'empreinte SHA-256 du mot de passe est conservée, jamais le mot de passe en clair.
- * Cela reste contournable par quiconque inspecte le code : en production, la vérification
- * doit se faire côté serveur (session httpOnly, rôles contrôlés par l'API, MFA).
+ * Session administrateur vérifiée CÔTÉ SERVEUR (fonctions /api) :
+ * les accès ne sont jamais envoyés au navigateur ; la session est un cookie
+ * httpOnly signé, illisible par le JavaScript de la page.
  */
 
 export type Role = 'admin';
@@ -19,95 +17,69 @@ export type SignInResult = { ok: true } | { ok: false; error: string };
 
 interface AuthApi {
   session: Session | null;
+  /** true tant que la session n'a pas été vérifiée auprès du serveur. */
+  loading: boolean;
   signIn: (email: string, password: string) => Promise<SignInResult>;
-  signOut: () => void;
-}
-
-const SESSION_KEY = 'vellara.session';
-const MAX_ATTEMPTS = 5;
-const LOCK_MS = 30_000;
-
-const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? '').trim().toLowerCase();
-const ADMIN_HASH = (import.meta.env.VITE_ADMIN_PASSWORD_SHA256 ?? '').trim().toLowerCase();
-
-export const authConfigured = !!ADMIN_EMAIL && /^[a-f0-9]{64}$/.test(ADMIN_HASH);
-
-async function sha256(value: string): Promise<string> {
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-/** Comparaison en temps constant (évite de révéler la position de la première différence). */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-function readSession(): Session | null {
-  try {
-    const raw = window.sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw) as Session;
-    return s.email === ADMIN_EMAIL ? s : null;
-  } catch {
-    return null;
-  }
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthApi | null>(null);
 
+async function readError(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: string };
+    if (body.error) return body.error;
+  } catch {
+    /* corps non JSON */
+  }
+  return response.status >= 500 ? 'Service de connexion indisponible. Réessayez plus tard.' : 'Connexion impossible.';
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(readSession);
-  const [failures, setFailures] = useState({ count: 0, lockedUntil: 0 });
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const signIn = useCallback(
-    async (email: string, password: string): Promise<SignInResult> => {
-      if (!authConfigured)
-        return { ok: false, error: 'Accès non configurés : renseignez VITE_ADMIN_EMAIL et VITE_ADMIN_PASSWORD_SHA256 dans .env.local.' };
-
-      const now = Date.now();
-      if (failures.lockedUntil > now) {
-        const s = Math.ceil((failures.lockedUntil - now) / 1000);
-        return { ok: false, error: `Trop de tentatives. Réessayez dans ${s} seconde${s > 1 ? 's' : ''}.` };
-      }
-
-      const valid = email.trim().toLowerCase() === ADMIN_EMAIL && safeEqual(await sha256(password), ADMIN_HASH);
-      if (!valid) {
-        const count = failures.count + 1;
-        const locked = count >= MAX_ATTEMPTS;
-        setFailures({ count: locked ? 0 : count, lockedUntil: locked ? now + LOCK_MS : 0 });
-        return {
-          ok: false,
-          error: locked ? 'Trop de tentatives. Accès bloqué pendant 30 secondes.' : 'Adresse e-mail ou mot de passe incorrect.',
-        };
-      }
-
-      const next: Session = { email: ADMIN_EMAIL, role: 'admin' };
-      try {
-        // sessionStorage : la session se ferme avec l'onglet.
-        window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
-      } catch {
-        /* session en mémoire uniquement */
-      }
-      setFailures({ count: 0, lockedUntil: 0 });
-      setSession(next);
-      return { ok: true };
-    },
-    [failures],
-  );
-
-  const signOut = useCallback(() => {
-    try {
-      window.sessionStorage.removeItem(SESSION_KEY);
-    } catch {
-      /* rien à nettoyer */
-    }
-    setSession(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/session', { credentials: 'same-origin' })
+      .then(async (r) => (r.ok ? ((await r.json()) as Session) : null))
+      .catch(() => null)
+      .then((s) => {
+        if (!cancelled) {
+          setSession(s);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const api = useMemo(() => ({ session, signIn, signOut }), [session, signIn, signOut]);
+  const signIn = useCallback(async (email: string, password: string): Promise<SignInResult> => {
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!response.ok) return { ok: false, error: await readError(response) };
+      setSession((await response.json()) as Session);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Serveur injoignable. Vérifiez votre connexion.' };
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+    } finally {
+      setSession(null);
+    }
+  }, []);
+
+  const api = useMemo(() => ({ session, loading, signIn, signOut }), [session, loading, signIn, signOut]);
   return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>;
 }
 

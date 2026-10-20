@@ -5,12 +5,12 @@ import { FieldShell, TextField } from '../../components/ui/Field';
 import { Icon } from '../../components/ui/Icon';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { DemoStrip } from '../../layouts/PublicLayout';
-import { authConfigured, useAuth } from '../../store/AuthContext';
+import { useAuth } from '../../store/AuthContext';
 import { useToast } from '../../store/ToastContext';
 
 export function LoginPage() {
   useDocumentTitle('Connexion');
-  const { session, signIn } = useAuth();
+  const { session, loading, signIn } = useAuth();
   const { notify } = useToast();
   const navigate = useNavigate();
   const from = (useLocation().state as { from?: string } | null)?.from ?? '/admin';
@@ -21,7 +21,7 @@ export function LoginPage() {
   const [errors, setErrors] = useState<{ email?: string; password?: string; form?: string }>({});
   const [pending, setPending] = useState(false);
 
-  if (session) return <Navigate to={from} replace />;
+  if (!loading && session) return <Navigate to={from} replace />;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -53,12 +53,6 @@ export function LoginPage() {
           <p className="eyebrow">Accès réservé</p>
           <h1 className="heading-section">Connexion à l’administration</h1>
           <p className="mt-3 text-ink-soft">Réservé aux équipes habilitées à gérer le catalogue.</p>
-
-          {!authConfigured && (
-            <p role="alert" className="mt-5 rounded-2xl bg-danger-50 px-4 py-3 text-sm text-[#6E0910]">
-              Accès non configurés : créez le fichier <code>.env.local</code> à partir de <code>.env.example</code>, puis relancez le serveur.
-            </p>
-          )}
 
           <form noValidate onSubmit={submit} className="mt-7 flex flex-col gap-[18px]">
             {errors.form && (
@@ -107,7 +101,7 @@ export function LoginPage() {
                 </div>
               )}
             </FieldShell>
-            <Button type="submit" size="lg" block disabled={pending || !authConfigured}>
+            <Button type="submit" size="lg" block disabled={pending}>
               {pending ? 'Vérification…' : 'Se connecter'}
             </Button>
             <ButtonLink to="/" variant="ghost" block>
@@ -115,7 +109,7 @@ export function LoginPage() {
             </ButtonLink>
           </form>
           <p className="mt-6 text-[12.5px] leading-relaxed text-muted">
-            Prototype : la vérification s’effectue dans le navigateur. La version de production utilisera une authentification serveur.
+            Connexion vérifiée par le serveur. Session sécurisée de 8 heures.
           </p>
         </div>
       </main>
